@@ -345,8 +345,8 @@ let wireOn = false;
 let materials = [];
 
 function setCamera() {
-  camera.position.set(1150, 900, 1150);
-  controls.target.set(420, 0, -420);
+  camera.position.set(560, 520, 620);
+  controls.target.set(0, 30, 0);
   controls.update();
 }
 setCamera();
@@ -355,32 +355,46 @@ setCamera();
 new OBJLoader().load(
   'assets/plan_demo.obj',
   (obj) => {
-    // Normalize: OBJ is in millimetres with wall height 2.8 (metres).
-    // Scale the whole model so the long axis is ~800 units for nice framing.
+    // --- Unit fix ---
+    // The exported OBJ mixes units: plan coordinates are already in a
+    // consistent mm-like scale (x/z span ~750x550) while the extruded wall
+    // height is written as 2.8 (= metres). A raw scale keeps the walls
+    // invisible; naively x1000 makes the model a skyscraper.
+    // Practical fix: scale the plan to a nice view size, then give the walls
+    // a height that reads correctly for that plan (real ratio, clamped).
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(new THREE.Vector3());
-    const longSide = Math.max(size.x, size.z);
-    const s = 820 / (longSide || 1);
-    obj.scale.setScalar(s);
+    const planSpan = Math.max(size.x, size.z) || 1;
+    const heightSpan = size.y || 1;
 
-    // Floor slabs sit at y=0 and the walls rise to height 2.8*scale.
-    // Give walls a light material and floors a darker one by height.
+    const s = 820 / planSpan;           // plan -> view units
+    obj.scale.x = s;
+    obj.scale.z = s;
+
+    // Height handling. The OBJ writes wall height as 2.8 while the plan spans
+    // ~750 (mm-ish). Interpreting 2.8 as metres (2800mm) is correct on paper,
+    // but this demo plan is a small fragment, so a literal conversion towers
+    // over it. Use a readable room ratio instead: walls ~12% of the long side.
+    const planInView = planSpan * s;                       // ~820
+    const targetHeight = planInView * 0.12;                // ~98 view units
+    obj.scale.y = targetHeight / heightSpan;
+
     obj.traverse((child) => {
       if (!child.isMesh) return;
       child.castShadow = true;
       child.receiveShadow = true;
+      child.geometry.computeVertexNormals();
       const m = new THREE.MeshStandardMaterial({
         color: 0xdfe4ea,
         roughness: 0.72,
         metalness: 0.04,
-        flatShading: false,
         side: THREE.DoubleSide
       });
       child.material = m;
       materials.push(m);
     });
 
-    // Re-center on the ground plane
+    // Re-center on the ground plane after scaling
     const box2 = new THREE.Box3().setFromObject(obj);
     const center = box2.getCenter(new THREE.Vector3());
     obj.position.x -= center.x;
