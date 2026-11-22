@@ -2,6 +2,10 @@
 
 2D floor plan → wall-line extraction → 3D reconstruction pipeline.
 
+**[▶ Live demo](https://zj0808.github.io/floorplan-3d-reconstruction/)** — the
+extruded model rendered in the browser with Three.js. Drag to rotate, scroll to
+zoom.
+
 This repository is a **demo module sliced out of a private project**. The full
 product (layout understanding, room segmentation, semantic reconstruction) stays
 private for now; what is published here is the piece that matters for verifying
