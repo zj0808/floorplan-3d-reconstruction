@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Floorplan 3D Reconstruction — 2D Floor Plan to 3D Model</title>
+<meta name="description" content="Turn a raster 2D floor plan into clean, axis-aligned wall segments and a 3D extruded model in the browser.">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root {
+    --bg: #0d0f12;
+    --panel: #15181d;
+    --line: #24282f;
+    --text: #e8eaed;
+    --muted: #8b939e;
+    --accent: #4ade80;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+
+  /* ---------- Nav ---------- */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0;
+    background: rgba(13,15,18,0.85);
+    backdrop-filter: blur(12px);
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.02em; }
+  .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  nav a.gh {
+    color: var(--muted); text-decoration: none; font-size: 14px;
+    border: 1px solid var(--line); padding: 7px 14px; border-radius: 7px;
+    transition: all .18s;
+  }
+  nav a.gh:hover { color: var(--text); border-color: #39414d; }
+
+  /* ---------- Hero ---------- */
+  header {
+    max-width: 1080px; margin: 0 auto;
+    padding: 72px 40px 40px;
+    text-align: center;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 52px);
+    font-weight: 700; letter-spacing: -0.03em; line-height: 1.1;
+    margin-bottom: 18px;
+  }
+  h1 .hl { color: var(--accent); }
+  header p {
+    color: var(--muted); font-size: 17px; max-width: 680px; margin: 0 auto 26px;
+  }
+  .tags { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .tag {
+    font-size: 12px; color: var(--muted);
+    border: 1px solid var(--line); padding: 5px 11px; border-radius: 999px;
+  }
+
+  /* ---------- Viewer ---------- */
+  .viewer-wrap {
+    max-width: 1080px; margin: 40px auto 0; padding: 0 40px;
+  }
+  #viewer {
+    position: relative;
+    height: 480px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 40%, #1a1f27 0%, #0d0f12 75%);
+  }
+  #viewer canvas { display: block; }
+  #loading {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 14px;
+  }
+  .viewer-hint {
+    position: absolute; bottom: 12px; left: 16px;
+    font-size: 12px; color: #5a636f;
+  }
+  .viewer-controls {
+    position: absolute; top: 12px; right: 12px;
+    display: flex; gap: 6px;
+  }
+  .viewer-controls button {
+    background: rgba(21,24,29,.9); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 11px; font-size: 12px; cursor: pointer;
+    transition: all .15s;
+  }
+  .viewer-controls button:hover { color: var(--text); border-color: #39414d; }
+  .viewer-controls button.on { color: var(--accent); border-color: var(--accent); }
+
+  /* ---------- Pipeline ---------- */
+  section { max-width: 1080px; margin: 0 auto; padding: 64px 40px; }
+  h2 {
+    font-size: 26px; font-weight: 650; letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .sub { color: var(--muted); font-size: 15px; margin-bottom: 34px; }
+
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0;
+  }
+  .step {
+    position: relative;
+    padding: 18px 16px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--panel);
+    margin: 0 6px 12px 0;
+  }
+  .step .n {
+    font-size: 11px; color: var(--accent); font-weight: 600;
+    letter-spacing: 0.04em; margin-bottom: 6px;
+  }
+  .step .t { font-size: 14px; font-weight: 550; }
+  .step .d { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* ---------- Images ---------- */
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+  .shot {
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    background: var(--panel);
+  }
+  .shot img { width: 100%; display: block; }
+  .shot .cap {
+    padding: 10px 14px; font-size: 12px; color: var(--muted);
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---------- Highlight list ---------- */
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; background: var(--panel);
+  }
+  .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 7px; }
+  .card p { font-size: 13px; color: var(--muted); }
+  code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.92em; background: #1e232b; padding: 1px 5px; border-radius: 4px;
+    color: #a5d6ff;
+  }
+  pre {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 18px 20px; overflow-x: auto;
+    font-size: 13px; line-height: 1.7;
+  }
+  pre code { background: none; padding: 0; color: #c9d1d9; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 28px 40px; text-align: center;
+    color: #5a636f; font-size: 13px;
+  }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 640px) {
+    nav { padding: 16px 20px; }
+    header, section { padding-left: 20px; padding-right: 20px; }
+    .viewer-wrap { padding: 0 20px; }
+    #viewer { height: 340px; }
+    .shots { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand"><span class="dot"></span> floorplan-3d-reconstruction</div>
+  <a class="gh" href="https://github.com/zj0808/floorplan-3d-reconstruction">View on GitHub →</a>
+</nav>
+
+<header>
+  <h1>Raster floor plan <br>to <span class="hl">3D in the browser</span></h1>
+  <p>
+    A wall-line extraction to 3D reconstruction pipeline. We strip a messy 2D plan
+    down to clean, axis-aligned wall segments, then extrude them into real geometry.
+  </p>
+  <div class="tags">
+    <span class="tag">Python</span>
+    <span class="tag">OpenCV</span>
+    <span class="tag">HoughLinesP</span>
+    <span class="tag">Three.js</span>
+    <span class="tag">OBJ export</span>
+  </div>
+</header>
+
+<div class="viewer-wrap">
+  <div id="viewer">
+    <div id="loading">Loading 3D model…</div>
+    <div class="viewer-controls">
+      <button id="btn-wire" title="Toggle wireframe">Wireframe</button>
+      <button id="btn-reset" title="Reset camera">Reset view</button>
+    </div>
+    <div class="viewer-hint">Drag to rotate · Scroll to zoom · Right-drag to pan</div>
+  </div>
+</div>
+
+<section>
+  <h2>Pipeline</h2>
+  <p class="sub">Raster in, structural linework out, geometry extruded.</p>
+  <div class="pipeline">
+    <div class="step"><div class="n">01</div><div class="t">Binarize</div><div class="d">Walls are dark on light.</div></div>
+    <div class="step"><div class="n">02</div><div class="t">Gap bridging</div><div class="d">Morphological closing</div></div>
+    <div class="step"><div class="n">03</div><div class="t">Canny edges</div><div class="d">Edge detection</div></div>
+    <div class="step"><div class="n">04</div><div class="t">HoughLinesP</div><div class="d">Probabilistic segments</div></div>
+    <div class="step"><div class="n">05</div><div class="t">Axis snap</div><div class="d">Collapse to orthogonal</div></div>
+    <div class="step"><div class="n">06</div><div class="t">Dedupe</div><div class="d">Drop double walls</div></div>
+    <div class="step"><div class="n">07</div><div class="t">Extrude</div><div class="d">Walls + floors → OBJ</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Input vs. reconstruction</h2>
+  <p class="sub">Left: extracted wall segments from the demo plan. Right: the extruded 3D result, live above.</p>
+  <div class="shots">
+    <div class="shot">
+      <img src="assets/plan_demo_segments.png" alt="Extracted wall segments">
+      <div class="cap">Extracted &amp; snapped wall segments</div>
+    </div>
+    <div class="shot">
+      <div style="height:100%;min-height:220px;display:flex;align-items:center;justify-content:center;color:#5a636f;font-size:13px;text-align:center;padding:20px;">
+        ← interact with the 3D model in the viewer above
+      </div>
+      <div class="cap">Extruded floor plan — 119 vertices, 130 wall faces, 9 floor faces</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What makes it work</h2>
+  <p class="sub">Floor plans in the wild are messy. Four steps do the heavy lifting.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>Axis-aligned snapping</h3>
+      <p>Real plans are overwhelmingly orthogonal. Near-vertical segments collapse to their mean <code>x</code>, near-horizontal to their mean <code>y</code>. This alone removes most double-wall artefacts.</p>
+    </div>
+    <div class="card">
+      <h3>Morphological gap bridging</h3>
+      <p>Text overlays and dimension ticks break wall strokes. Closing restores them into one continuous line before edge detection runs.</p>
+    </div>
+    <div class="card">
+      <h3>Segment deduplication</h3>
+      <p>Hough fires many times on a single thick wall. Segments within tolerance of an existing one are dropped, leaving one clean line per wall.</p>
+    </div>
+    <div class="card">
+      <h3>Direct OBJ output</h3>
+      <p>Walls and floor slabs are emitted as plain <code>v</code>/<code>f</code> OBJ, so any 3D tool (Blender, Unity, this page) can load them with zero conversion.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Run it</h2>
+  <p class="sub">Python 3 + OpenCV. No GPU, no model weights.</p>
+<pre><code>git clone https://github.com/zj0808/floorplan-3d-reconstruction.git
+cd floorplan-3d-reconstruction
+pip install -r requirements.txt
+
+python line_extract.py samples/plan.png -o out/
+python reconstruct.py out/plan_demo_graph.json -o out/</code></pre>
+  <p class="sub" style="margin-top:22px;">
+    Outputs <code>plan_demo.obj</code>, <code>plan_demo_segments.png</code> and
+    <code>plan_demo_graph.json</code> — the first one is what you see rendered above.
+  </p>
+</section>
+
+<footer>
+  Part of a private layout-understanding product, opened up as a demo module ·
+  <a href="https://github.com/zj0808/floorplan-3d-reconstruction">GitHub</a>
+</footer>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+const host = document.getElementById('viewer');
+const loadingEl = document.getElementById('loading');
+
+const scene = new THREE.Scene();
+scene.background = null;
+scene.fog = new THREE.Fog(0x0d0f12, 2200, 4200);
+
+const camera = new THREE.PerspectiveCamera(45, host.clientWidth / host.clientHeight, 1, 10000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(host.clientWidth, host.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+host.appendChild(renderer.domElement);
+
+// ---- Lights ----
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+
+const key = new THREE.DirectionalLight(0xffffff, 1.9);
+key.position.set(600, 1400, 700);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 100;
+key.shadow.camera.far = 4000;
+key.shadow.camera.left = -1200;
+key.shadow.camera.right = 1200;
+key.shadow.camera.top = 1200;
+key.shadow.camera.bottom = -1200;
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0x4ade80, 0.45);
+fill.position.set(-700, 500, -600);
+scene.add(fill);
+
+// ---- Ground grid ----
+const grid = new THREE.GridHelper(3000, 60, 0x24282f, 0x1a1e24);
+grid.position.y = -0.5;
+scene.add(grid);
+
+// ---- Controls ----
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI / 2.05;
+controls.minDistance = 200;
+controls.maxDistance = 5000;
+
+let modelRoot = null;
+let wireOn = false;
+let materials = [];
+
+function setCamera() {
+  camera.position.set(1150, 900, 1150);
+  controls.target.set(420, 0, -420);
+  controls.update();
+}
+setCamera();
+
+// ---- Load OBJ ----
+new OBJLoader().load(
+  'assets/plan_demo.obj',
+  (obj) => {
+    // Normalize: OBJ is in millimetres with wall height 2.8 (metres).
+    // Scale the whole model so the long axis is ~800 units for nice framing.
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = box.getSize(new THREE.Vector3());
+    const longSide = Math.max(size.x, size.z);
+    const s = 820 / (longSide || 1);
+    obj.scale.setScalar(s);
+
+    // Floor slabs sit at y=0 and the walls rise to height 2.8*scale.
+    // Give walls a light material and floors a darker one by height.
+    obj.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      const m = new THREE.MeshStandardMaterial({
+        color: 0xdfe4ea,
+        roughness: 0.72,
+        metalness: 0.04,
+        flatShading: false,
+        side: THREE.DoubleSide
+      });
+      child.material = m;
+      materials.push(m);
+    });
+
+    // Re-center on the ground plane
+    const box2 = new THREE.Box3().setFromObject(obj);
+    const center = box2.getCenter(new THREE.Vector3());
+    obj.position.x -= center.x;
+    obj.position.z -= center.z;
+    obj.position.y -= box2.min.y;
+
+    scene.add(obj);
+    modelRoot = obj;
+    loadingEl.style.display = 'none';
+  },
+  undefined,
+  (err) => {
+    loadingEl.textContent = 'Could not load the 3D model (see console).';
+    console.error(err);
+  }
+);
+
+// ---- Buttons ----
+document.getElementById('btn-wire').addEventListener('click', (e) => {
+  wireOn = !wireOn;
+  materials.forEach((m) => { m.wireframe = wireOn; });
+  e.currentTarget.classList.toggle('on', wireOn);
+});
+document.getElementById('btn-reset').addEventListener('click', setCamera);
+
+// ---- Resize ----
+const ro = new ResizeObserver(() => {
+  const w = host.clientWidth, h = host.clientHeight;
+  if (!w || !h) return;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+ro.observe(host);
+
+// ---- Loop ----
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
