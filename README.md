@@ -2,7 +2,7 @@
 
 2D floor plan → wall-line extraction → 3D reconstruction pipeline.
 
-**[▶ Live demo](https://zj0808.github.io/floorplan-3d-reconstruction/)** — the
+**[▶ Live demo](https://xiaoyi-vision.github.io/floorplan-3d-reconstruction/)** — the
 extruded model rendered in the browser with Three.js. Drag to rotate, scroll to
 zoom.
 
